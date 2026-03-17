@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+venv/
+.env
+.venv
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Piper / models
+piper_models/
+records/
+
+# C++ / Arduino / ESP32
+*.hex
+*.elf
+*.bin
+*.map
+*.a
+*.o
+*.elf.map
+.pio/
+build/
+.vscode/
+*.user
+*.su
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Other
+*.log
