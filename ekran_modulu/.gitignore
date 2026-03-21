@@ -1,0 +1,23 @@
+# ESP-IDF Build Output
+build/
+
+# ESP-IDF Cache
+.cache/
+
+# Managed components (idf component manager)
+managed_components/
+
+# Old sdkconfig backup
+sdkconfig.old
+
+# VS Code settings (optional: remove if you want to share these)
+.vscode/
+
+# Python virtual environments (if any)
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+Thumbs.db
