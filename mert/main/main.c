@@ -15,8 +15,15 @@
 #include "i2s_player.h"
 #include "voice_client.h"
 #include "pomodoro.h"
-#include "display.h"
+#include "ui/display.h"
+#include "ui/ui_idle.h"
+#include "ui/ui_pomodoro.h"
+#include "ui/ui_sensor.h"
+#include "ui/ui_voice.h"
+#include "ui/ui_ai.h"
 #include <math.h>
+#include <time.h>
+#include "esp_sntp.h"
 
 // Sensör kütüphaneleri
 #include "esp_adc/adc_oneshot.h"
@@ -28,6 +35,11 @@ static const char *TAG = "main";
 // Sensör handle'ları
 static adc_oneshot_unit_handle_t adc1_handle;
 static ds18b20_device_handle_t ds18b20_handle = NULL;
+
+// Ekran / UI Durum
+static screen_id_t current_screen = SCREEN_IDLE;
+static float last_temp = 0.0f;
+static float last_ldr = 0.0f;
 
 // ─── WiFi ─────────────────────────────────────────────────────────────────────
 #define WIFI_CONNECTED_BIT BIT0
@@ -98,11 +110,20 @@ static esp_err_t wifi_init_sta(void)
     return ESP_FAIL;
 }
 
+static void sync_time_init(void) {
+    ESP_LOGI(TAG, "SNTP başlatılıyor...");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+    setenv("TZ", "TRT-3", 1); // Türkiye saati (UTC+3 sabit)
+    tzset();
+}
+
 // ─── Buton Yardımcısı ─────────────────────────────────────────────────────────
 static void button_init(void)
 {
     gpio_config_t gc = {
-        .pin_bit_mask = (1ULL << BUTTON_GPIO),
+        .pin_bit_mask = (1ULL << BUTTON_GPIO) | (1ULL << LEFT_BUTTON_GPIO) | (1ULL << RIGHT_BUTTON_GPIO),
         .mode         = GPIO_MODE_INPUT,
         .pull_up_en   = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -111,10 +132,9 @@ static void button_init(void)
     gpio_config(&gc);
 }
 
-static inline bool button_pressed(void)
-{
-    return gpio_get_level(BUTTON_GPIO) == 0; /* pull-up → basılı = LOW */
-}
+static inline bool button_pressed(void) { return gpio_get_level(BUTTON_GPIO) == 0; }
+static inline bool left_button_pressed(void) { return gpio_get_level(LEFT_BUTTON_GPIO) == 0; }
+static inline bool right_button_pressed(void) { return gpio_get_level(RIGHT_BUTTON_GPIO) == 0; }
 
 // ─── Sensör Yardımcıları ──────────────────────────────────────────────────────
 static void sensor_init(void)
@@ -260,6 +280,48 @@ static void smart_led_update(float light_percent) {
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+// ─── UI Navigasyon Görevi (Task) ──────────────────────────────────────────────
+static uint32_t s_last_interaction_ticks = 0;
+
+static void button_task(void *arg) {
+    static bool last_left = false;
+    static bool last_right = false;
+
+    while (1) {
+        bool cur_left = left_button_pressed();
+        bool cur_right = right_button_pressed();
+        bool cur_main = button_pressed();
+        
+        if ((cur_left && !last_left) || (cur_right && !last_right) || cur_main) {
+            s_last_interaction_ticks = xTaskGetTickCount();
+        }
+        
+        if (cur_left && !last_left) {
+            current_screen = (current_screen == 0) ? SCREEN_AI : (current_screen - 1);
+            if (current_screen == SCREEN_VOICE) current_screen = SCREEN_SENSOR; // Skip Voice
+            display_switch_screen(current_screen);
+        }
+        if (cur_right && !last_right) {
+            current_screen = (current_screen == SCREEN_AI) ? 0 : (current_screen + 1);
+            if (current_screen == SCREEN_VOICE) current_screen = SCREEN_AI; // Skip Voice
+            display_switch_screen(current_screen);
+        }
+        last_left = cur_left;
+        last_right = cur_right;
+
+        // Inactivity timeout: auto return to Pomodoro
+        if (xTaskGetTickCount() - s_last_interaction_ticks > pdMS_TO_TICKS(15000)) {
+            if (current_screen == SCREEN_IDLE || current_screen == SCREEN_SENSOR || current_screen == SCREEN_AI) {
+                current_screen = SCREEN_POMODORO;
+                display_switch_screen(current_screen);
+                s_last_interaction_ticks = xTaskGetTickCount(); // Sürekli tekrar geçiş olmasın
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 // ─── Ana Uygulama ─────────────────────────────────────────────────────────────
 void app_main(void)
 {
@@ -273,18 +335,19 @@ void app_main(void)
 
     /* WiFi */
     ESP_ERROR_CHECK(wifi_init_sta());
+    sync_time_init();
 
     /* I2S */
     ESP_ERROR_CHECK(i2s_mic_init());
     ESP_ERROR_CHECK(i2s_player_init(SPK_SAMPLE_RATE, 16, 1));
 
-    /* Buton */
+    /* Buton ve Pomodoro */
     button_init();
     pomodoro_init();
-    
+    xTaskCreate(button_task, "btn_task", 2048, NULL, 5, NULL);
+
     /* Ekran */
     display_init();
-    display_update_status("Hazır");
 
     /* Sensörler */
     sensor_init();
@@ -313,6 +376,13 @@ void app_main(void)
             
             // LED Parlaklığını ışığa göre ayarla
             smart_led_update(light);
+            
+            last_temp = temp;
+            last_ldr = light;
+            if (display_lock(200)) {
+                ui_sensor_update(last_temp, (int)last_ldr, noise);
+                display_unlock();
+            }
             
             size_t resp_len = 0;
             esp_err_t err = voice_client_sensor_update(temp, light, noise, resp_buf, RESP_BUF_SIZE, &resp_len);
@@ -343,17 +413,22 @@ void app_main(void)
             
             if (now_ticks - last_disp_ticks > pdMS_TO_TICKS(1000)) {
                 uint32_t rem = pomodoro_get_remaining_sec();
-                // 1 saniyede bir ekrani guncelle
-                display_update_timer(rem / 60, rem % 60);
-                display_update_status(pomodoro_get_state_str());
+                if (display_lock(200)) {
+                    if (current_screen == SCREEN_IDLE) {
+                        ui_idle_tick();
+                    } else if (current_screen == SCREEN_POMODORO) {
+                        ui_pomodoro_update(pomodoro_get_state(), rem, pomodoro_get_total_sec(), pomodoro_get_completed_count());
+                    }
+                    display_unlock();
+                }
                 last_disp_ticks = now_ticks;
             }
 
             if (now_ticks - last_log_ticks > pdMS_TO_TICKS(10000)) {
                 uint32_t rem = pomodoro_get_remaining_sec();
                 if (pomodoro_get_state() != POMO_IDLE) {
-                    ESP_LOGI(TAG, "[TIMER] %s Modu. Kalan Süre: %02lu:%02lu", 
-                             pomodoro_get_state_str(), rem / 60, rem % 60);
+                    ESP_LOGI(TAG, "[TIMER] %s Modu (%d. Pomodoro). Kalan Süre: %02lu:%02lu", 
+                             pomodoro_get_state_str(), pomodoro_get_completed_count() + 1, rem / 60, rem % 60);
                 }
                 last_log_ticks = now_ticks;
             }
@@ -363,14 +438,33 @@ void app_main(void)
 
         if (event_triggered) {
             ESP_LOGW(TAG, ">> Pomodoro Olayı Tetiklendi: %s", pomo_evt);
+            
+            // Ekranı Pomodoro'ya çek (Otomatik geçiş görünsün)
+            current_screen = SCREEN_POMODORO;
+            display_switch_screen(current_screen);
+            s_last_interaction_ticks = xTaskGetTickCount();
+
+            // Durum değişti, UI'ı hemen güncelle (animasyon + zaman anında yansısın)
+            if (display_lock(200)) {
+                ui_pomodoro_update(pomodoro_get_state(), pomodoro_get_remaining_sec(),
+                                   pomodoro_get_total_sec(), pomodoro_get_completed_count());
+                display_unlock();
+            }
+
             size_t resp_len = 0;
             char action_out[32] = {0};
+            static char transcript_out[1024];
+            static char answer_out[2048];
+            transcript_out[0] = '\0';
+            answer_out[0] = '\0';
             
             // Ses verisi yok, sadece header ile STT atlayıp LLM cevabı alıyoruz.
             esp_err_t ret = voice_client_transcribe(
                 NULL, 0,
                 pomo_evt, pomodoro_get_state_str(),
-                resp_buf, RESP_BUF_SIZE, &resp_len, action_out
+                resp_buf, RESP_BUF_SIZE, &resp_len, action_out,
+                transcript_out, sizeof(transcript_out),
+                answer_out, sizeof(answer_out)
             );
             
             if (ret == ESP_OK && resp_len > 10) {
@@ -388,7 +482,13 @@ void app_main(void)
         if (!button_pressed()) continue;
 
         ESP_LOGI(TAG, "◉ Kayıt başladı...");
-        display_update_status("Dinliyor...");
+        current_screen = SCREEN_VOICE;
+        display_switch_screen(current_screen);
+        if (display_lock(200)) {
+            ui_voice_set_state(VOICE_RECORDING);
+            ui_voice_set_transcript("...");
+            display_unlock();
+        }
 
         /* 2. Kayıt */
         size_t total_samples = 0;
@@ -412,14 +512,26 @@ void app_main(void)
 
         /* 3. Sunucuya gönder */
         ESP_LOGI(TAG, "⬆ Sunucuya gönderiliyor...");
-        display_update_status("Düşünüyor...");
+        current_screen = SCREEN_AI;
+        display_switch_screen(current_screen);
+        if (display_lock(200)) {
+            ui_ai_set_thinking(true);
+            ui_ai_set_response("...", "Pomodoro Chatbot");
+            display_unlock();
+        }
         size_t resp_len = 0;
         char action_out[32] = {0};
+        static char transcript_out[1024];
+        static char answer_out[2048];
+        transcript_out[0] = '\0';
+        answer_out[0] = '\0';
         
         ret = voice_client_transcribe(
             (uint8_t *)rec_buf, pcm_bytes,
             NULL, pomodoro_get_state_str(),
-            resp_buf, RESP_BUF_SIZE, &resp_len, action_out
+            resp_buf, RESP_BUF_SIZE, &resp_len, action_out,
+            transcript_out, sizeof(transcript_out),
+            answer_out, sizeof(answer_out)
         );
 
         if (ret != ESP_OK || resp_len < 10) {
@@ -434,18 +546,48 @@ void app_main(void)
         i2s_player_play(resp_buf, resp_len);
         
         /* 5. Eylem kontrolü (Pomodoro) */
+        // Güvenlik: Transkript içinde pomodoro kelimesi geçmiyorsa action'ı yoksay
+        bool pomo_keyword_found = (strcasestr(transcript_out, "pomodoro") != NULL ||
+                                   strcasestr(transcript_out, "sayac") != NULL ||
+                                   strcasestr(transcript_out, "calis") != NULL ||
+                                   strcasestr(transcript_out, "durdur") != NULL ||
+                                   strcasestr(transcript_out, "basla") != NULL ||
+                                   strcasestr(transcript_out, "baslat") != NULL ||
+                                   strcasestr(transcript_out, "devam") != NULL ||
+                                   strcasestr(transcript_out, "yeniden") != NULL ||
+                                   strcasestr(transcript_out, "mola") != NULL ||
+                                   strcasestr(transcript_out, "sure") != NULL ||
+                                   strcasestr(transcript_out, "süre") != NULL);
+        if (strlen(action_out) > 0 && !pomo_keyword_found) {
+            ESP_LOGW(TAG, "Action '%s' alindi ama transkriptte pomodoro kelimesi yok, yoksayildi.", action_out);
+            action_out[0] = '\0'; // Temizle
+        }
         if (strcmp(action_out, "POMO_START") == 0) {
             if (pomodoro_start()) {
                 ESP_LOGW(TAG, "========= POMODORO ÇALIŞMASI BAŞLADI =========");
+                current_screen = SCREEN_POMODORO;
+                display_switch_screen(current_screen);
             } else {
                 ESP_LOGI(TAG, "Pomodoro zaten aktif, yeniden başlatılmadı.");
             }
         } else if (strcmp(action_out, "POMO_STOP") == 0) {
             pomodoro_stop();
             ESP_LOGW(TAG, "========= POMODORO SAYACI DURDURULDU =========");
+            current_screen = SCREEN_POMODORO;
+            display_switch_screen(current_screen);
         }
 
-        display_update_status(pomodoro_get_state() == POMO_IDLE ? "Hazır" : pomodoro_get_state_str());
+        if (display_lock(200)) {
+            ui_ai_set_thinking(false);
+            if (strlen(answer_out) > 0) {
+                ui_ai_set_response(answer_out, strlen(transcript_out) > 0 ? transcript_out : "Sistem");
+            } else {
+                ui_ai_set_response(action_out, "Tamamlandı");
+            }
+            display_unlock();
+        }
+        // Cevap geldi, inactivity sayacını sıfırla (15sn'den önce Pomodoro'ya geçmesin)
+        s_last_interaction_ticks = xTaskGetTickCount();
         ESP_LOGI(TAG, "✓ Tamamlandı.\n");
     }
 }

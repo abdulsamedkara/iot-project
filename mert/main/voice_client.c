@@ -10,12 +10,36 @@
 
 static const char *TAG = "voice_client";
 
+static void url_decode(char *dst, const char *src, size_t dst_size) {
+    size_t d = 0;
+    while (*src && d < dst_size - 1) {
+        if (*src == '%') {
+            if (src[1] && src[2]) {
+                int v;
+                sscanf(src + 1, "%2x", &v);
+                dst[d++] = (char)v;
+                src += 3;
+            } else { break; }
+        } else if (*src == '+') {
+            dst[d++] = ' ';
+            src++;
+        } else {
+            dst[d++] = *src++;
+        }
+    }
+    dst[d] = '\0';
+}
+
 typedef struct {
     uint8_t *buf;
     size_t   buf_sz;
     size_t   len;
     bool     overflow;
     char    *action_out;
+    char    *transcript_out;
+    size_t   transcript_sz;
+    char    *answer_out;
+    size_t   answer_sz;
 } resp_ctx_t;
 
 static esp_err_t http_evt(esp_http_client_event_t *evt)
@@ -34,6 +58,12 @@ static esp_err_t http_evt(esp_http_client_event_t *evt)
             strncpy(ctx->action_out, evt->header_value, 31);
             ctx->action_out[31] = '\0';
             ESP_LOGI(TAG, "Gelen X-Action: %s", ctx->action_out);
+        } else if (strcasecmp(evt->header_key, "X-Transcript-URL") == 0 && ctx->transcript_out) {
+            url_decode(ctx->transcript_out, evt->header_value, ctx->transcript_sz);
+            ESP_LOGI(TAG, "Gelen Transcript: %s", ctx->transcript_out);
+        } else if (strcasecmp(evt->header_key, "X-Answer-URL") == 0 && ctx->answer_out) {
+            url_decode(ctx->answer_out, evt->header_value, ctx->answer_sz);
+            ESP_LOGI(TAG, "Gelen Answer: %s", ctx->answer_out);
         }
     } else if (evt->event_id == HTTP_EVENT_ERROR) {
         ESP_LOGE(TAG, "HTTP hatası");
@@ -44,13 +74,23 @@ static esp_err_t http_evt(esp_http_client_event_t *evt)
 esp_err_t voice_client_transcribe(const uint8_t *pcm_data, size_t pcm_len,
                                    const char *event_hdr, const char *state_hdr,
                                    uint8_t *resp_buf, size_t resp_buf_sz,
-                                   size_t *resp_len, char *action_out)
+                                   size_t *resp_len, char *action_out,
+                                   char *transcript_out, size_t transcript_sz,
+                                   char *answer_out, size_t answer_sz)
 {
     char url[128];
     snprintf(url, sizeof(url), "http://%s:%d/transcribe", SERVER_HOST, SERVER_PORT);
 
     if (action_out) action_out[0] = '\0';
-    resp_ctx_t ctx = { .buf = resp_buf, .buf_sz = resp_buf_sz, .len = 0, .overflow = false, .action_out = action_out };
+    if (transcript_out) transcript_out[0] = '\0';
+    if (answer_out) answer_out[0] = '\0';
+    
+    resp_ctx_t ctx = { 
+        .buf = resp_buf, .buf_sz = resp_buf_sz, .len = 0, .overflow = false, 
+        .action_out = action_out,
+        .transcript_out = transcript_out, .transcript_sz = transcript_sz,
+        .answer_out = answer_out, .answer_sz = answer_sz
+    };
 
     esp_http_client_config_t cfg = {
         .url            = url,
@@ -114,7 +154,7 @@ esp_err_t voice_client_sensor_update(float temp, float light, float noise,
         .method         = HTTP_METHOD_POST,
         .event_handler  = http_evt,
         .user_data      = &ctx,
-        .timeout_ms     = 180000, /* LLM ve TTS 30-40 sn sürebilir, 3 dk bekleme süresi */
+        .timeout_ms     = 60000, /* LLM ve TTS 30-40 sn sürebilir, 1 dk bekleme süresi */
         .buffer_size    = 4096,
         .buffer_size_tx = 4096,
         .keep_alive_enable = true,

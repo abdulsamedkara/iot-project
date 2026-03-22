@@ -22,23 +22,19 @@ build/
 *.o
 *.a
 *.out
-*.exe # For any host-side utilities compiled on Windows
 
 # ESP-IDF specific build outputs
 *.bin
 *.elf
 *.map
-flasher_args.json # Generated in build directory
+flasher_args.json
 sdkconfig.old
 sdkconfig
 
 # ESP-IDF dependencies
-# For older versions or manual component management
 /components/.idf/
 **/components/.idf/
-# For modern ESP-IDF component manager
 managed_components/
-# If ESP-IDF tools are installed/referenced locally to the project
 .espressif/
 
 # CMake generated files
@@ -66,6 +62,9 @@ env/
 .ccls-cache/
 compile_commands.json
 
+# Clangd index cache (generated automatically, large binary files)
+.cache/
+
 # Windows specific
 Thumbs.db
 ehthumbs.db
@@ -73,12 +72,17 @@ Desktop.ini
 
 # User-specific configuration files
 *.user
-*.workspace # General workspace files, can be from various tools
-*.suo       # Visual Studio Solution User Options
-*.sln.docstates # Visual Studio
+*.workspace
+*.suo
+*.sln.docstates
 
-# Piper TTS Models
+# Piper TTS models & binaries (large binary/platform-specific files)
 *.onnx
 *.onnx.json
 espeak-ng-data/
 *.dll
+piper.exe
+
+# ESP-IDF dependency lock (auto-generated)
+dependencies.lock
+

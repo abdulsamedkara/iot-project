@@ -5,7 +5,8 @@
 typedef enum {
     POMO_IDLE = 0,
     POMO_WORK,
-    POMO_BREAK
+    POMO_BREAK,
+    POMO_LONG_BREAK
 } pomo_state_t;
 
 void pomodoro_init(void);
@@ -15,6 +16,7 @@ pomo_state_t pomodoro_get_state(void);
 const char* pomodoro_get_state_str(void);
 uint32_t pomodoro_get_remaining_sec(void);
 uint32_t pomodoro_get_total_sec(void);
+int pomodoro_get_completed_count(void);
 
 /* Her döngüde çağrılır, eğer süre dolduysa true ve event_out döndürür */
 bool pomodoro_check_event(char* event_out);

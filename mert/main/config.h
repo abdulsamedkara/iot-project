@@ -25,8 +25,10 @@
 // Piper TTS varsayılan çıkış hızı (dfki-medium modeli için)
 #define SPK_SAMPLE_RATE   22050
 
-// ─── Buton ───────────────────────────────────────────────────────────────────
-#define BUTTON_GPIO       4
+// ─── Butonlar ──────────────────────────────────────────────────────────────────
+#define BUTTON_GPIO       4             // Ana kayıt butonu
+#define LEFT_BUTTON_GPIO  0             // Sol Ekran Butonu (Boot butonu da olabilir)
+#define RIGHT_BUTTON_GPIO 39            // Sağ Ekran Butonu
 
 // ─── Sensörler ───────────────────────────────────────────────────────────────
 #define DS18B20_GPIO      8             // Önceden 9'du, 8 olarak değiştirildi.

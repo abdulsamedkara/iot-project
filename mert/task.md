@@ -29,14 +29,15 @@
 - [x] Gürültü verisini `/sensor_update` endpointi ile sunucuya yollama
 - [x] Sunucuda gürültü verisini alıp Ollama için bağlama ekleme ve yüksek gürültü uyarısı yapma
 
-## Faz 3: ILI9341 TFT Ekran
-- [ ] SPI/TFT sürücü entegrasyonu (esp_lcd)
-- [ ] LVGL ile UI tasarımı (Pomodoro Sayacı, ChatBot durumu)
-- [ ] Durum göstergeleri (Düşünüyor, Dinliyor, vb.)
+## Faz 3: ILI9341 TFT Ekran (Arkadaşın Tasarımlarıyla)
+- [x] `ekran_modulu` klasöründeki SPI/TFT sürücü ve UI dosyalarının entegrasyonu
+- [x] LVGL bağımlılıklarının (`lvgl` ve `esp_lcd_ili9341`) ana projeye eklenmesi
+- [x] Butonlarla (Sağ ve Sol) ekranlar arası geçiş mantığının (Navigation) eklenmesi
+- [x] Ana döngüde ekranların başlatılması ve durum güncellemelerinin bağlanması
 
 ## Faz 4: Pomodoro Zamanlayıcı ve Asistan Mantığı
 - [x] 25 dk Çalışma / 5 dk Mola vb. durum makinesi (State Machine)
 - [x] Zamanlayıcının ESP32 üzerinde donanımsal takibi
 - [x] Süre bitimlerinde sesli bildirim (Sunucudan TTS isteği)
 - [x] Sesli komutla Pomodoro başlatma (LLM Intent Parsing)
-- [ ] TFT ekranda (Faz 3) kalan pomodoro süresinin görsel olarak (Sayaç) gösterilmesi
+- [x] TFT ekranda (Faz 3) kalan pomodoro süresinin görsel olarak (Sayaç) gösterilmesi

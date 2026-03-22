@@ -5,8 +5,13 @@ idf_component_register(
         "i2s_mic.c"
         "i2s_player.c"
         "voice_client.c"
-        "display.c"
-    INCLUDE_DIRS "."
+        "ui/display.c"
+        "ui/ui_idle.c"
+        "ui/ui_pomodoro.c"
+        "ui/ui_sensor.c"
+        "ui/ui_voice.c"
+        "ui/ui_ai.c"
+    INCLUDE_DIRS "." "ui"
     REQUIRES
         esp_wifi
         nvs_flash
@@ -15,4 +20,7 @@ idf_component_register(
         esp_event
         esp_timer
         esp_adc
+        lvgl
+        esp_lcd_ili9341
+        mbedtls
 )
