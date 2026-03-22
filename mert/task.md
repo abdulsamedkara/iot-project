@@ -19,10 +19,15 @@
 - [x] HTTP client (`voice_client.c/h`)
 - [x] [main.c](file:///c:/Users/Mert/Desktop/pomodoro-chatbot/firmware/main/main.c) - WiFi + kayıt döngüsü + WAV ayrıştırma + oynatma
 
-## Faz 2: Sensör Entegrasyonu (Atlandı - Donanım Eksikliği)
-- [ ] DS18B20 sıcaklık sensörü okuma
-- [ ] LDR ışık sensörü okuma
-- [ ] Sensör verilerini Ollama prompt'una ekleme
+## Faz 2: Sensör Entegrasyonu (Tamamlandı)
+- [x] DS18B20 sıcaklık sensörü okuma (GPIO 8)
+- [x] LDR ışık sensörü okuma (GPIO 5 - ADC1_CH4)
+- [x] Sensör verilerini Ollama prompt'una ekleme ve Proaktif Uyarılar
+
+## Faz 2.1: Arka Plan Gürültü Ölçümü (Tamamlandı)
+- [x] Olay döngüsünde INMP441 mikrofonundan kısa saniyelik okumalar yaparak RMS/Ortalama gürültü hesaplama
+- [x] Gürültü verisini `/sensor_update` endpointi ile sunucuya yollama
+- [x] Sunucuda gürültü verisini alıp Ollama için bağlama ekleme ve yüksek gürültü uyarısı yapma
 
 ## Faz 3: ILI9341 TFT Ekran
 - [ ] SPI/TFT sürücü entegrasyonu (esp_lcd)

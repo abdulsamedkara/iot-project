@@ -99,3 +99,55 @@ esp_err_t voice_client_transcribe(const uint8_t *pcm_data, size_t pcm_len,
     esp_http_client_cleanup(client);
     return ret;
 }
+
+esp_err_t voice_client_sensor_update(float temp, float light, float noise,
+                                     uint8_t *resp_buf, size_t resp_buf_sz,
+                                     size_t *resp_len)
+{
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d/sensor_update", SERVER_HOST, SERVER_PORT);
+
+    resp_ctx_t ctx = { .buf = resp_buf, .buf_sz = resp_buf_sz, .len = 0, .overflow = false, .action_out = NULL };
+
+    esp_http_client_config_t cfg = {
+        .url            = url,
+        .method         = HTTP_METHOD_POST,
+        .event_handler  = http_evt,
+        .user_data      = &ctx,
+        .timeout_ms     = 180000, /* LLM ve TTS 30-40 sn sürebilir, 3 dk bekleme süresi */
+        .buffer_size    = 4096,
+        .buffer_size_tx = 4096,
+        .keep_alive_enable = true,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return ESP_FAIL;
+
+    char payload[128];
+    snprintf(payload, sizeof(payload), "{\"temperature\":%.1f, \"light\":%.1f, \"noise\":%.1f}", temp, light, noise);
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, payload, strlen(payload));
+
+    ESP_LOGI(TAG, "Sensör verisi gönderiliyor: %s", payload);
+    esp_err_t ret = esp_http_client_perform(client);
+
+    if (ret == ESP_OK) {
+        int status = esp_http_client_get_status_code(client);
+        if (status == 200 && !ctx.overflow) {
+            *resp_len = ctx.len;
+            ESP_LOGI(TAG, "Proaktif uyarı yanıtı: %zu bayt WAV", ctx.len);
+        } else if (status == 204) {
+            *resp_len = 0;
+            ESP_LOGI(TAG, "Sensör güncellendi, proaktif uyarı yok.");
+        } else {
+            ESP_LOGE(TAG, "Sunucu hatası: HTTP %d", status);
+            ret = ESP_FAIL;
+        }
+    } else {
+        ESP_LOGE(TAG, "HTTP başarısız: %s", esp_err_to_name(ret));
+    }
+
+    esp_http_client_cleanup(client);
+    return ret;
+}

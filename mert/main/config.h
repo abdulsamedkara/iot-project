@@ -28,6 +28,12 @@
 // ─── Buton ───────────────────────────────────────────────────────────────────
 #define BUTTON_GPIO       4
 
+// ─── Sensörler ───────────────────────────────────────────────────────────────
+#define DS18B20_GPIO      8             // Önceden 9'du, 8 olarak değiştirildi.
+#define LDR_ADC_CHANNEL   ADC_CHANNEL_4 // GPIO 5 için ADC_CHANNEL_4
+#define SENSOR_UPDATE_MS  15000         // Her 15 saniyede bir kontrol et (kısaltıldı)
+#define SMART_LED_GPIO    38            // Ortam karardıkça yanacak Akıllı LED Pini
+
 // ─── Tampon Boyutları (PSRAM) ────────────────────────────────────────────────
 // 16000 örnek/s × 2 bayt × 15 s = 480 000 bayt
 #define MAX_RECORD_SECONDS  15

@@ -7,6 +7,7 @@
 #include "esp_event.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "esp_heap_caps.h"
 
 #include "config.h"
@@ -15,8 +16,18 @@
 #include "voice_client.h"
 #include "pomodoro.h"
 #include "display.h"
+#include <math.h>
+
+// Sensör kütüphaneleri
+#include "esp_adc/adc_oneshot.h"
+#include "onewire_bus.h"
+#include "ds18b20.h"
 
 static const char *TAG = "main";
+
+// Sensör handle'ları
+static adc_oneshot_unit_handle_t adc1_handle;
+static ds18b20_device_handle_t ds18b20_handle = NULL;
 
 // ─── WiFi ─────────────────────────────────────────────────────────────────────
 #define WIFI_CONNECTED_BIT BIT0
@@ -72,6 +83,9 @@ static esp_err_t wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_ERROR_CHECK(esp_wifi_start());
+    
+    // Uzun süren LLM/STT isteklerinde bağlantının kopmaması için güç tasarrufunu devre dışı bırakıyoruz.
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     EventBits_t bits = xEventGroupWaitBits(s_wifi_eg,
         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
@@ -102,6 +116,150 @@ static inline bool button_pressed(void)
     return gpio_get_level(BUTTON_GPIO) == 0; /* pull-up → basılı = LOW */
 }
 
+// ─── Sensör Yardımcıları ──────────────────────────────────────────────────────
+static void sensor_init(void)
+{
+    /* LDR (ADC1) İlklendirme */
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+    };
+    if (adc_oneshot_new_unit(&init_config1, &adc1_handle) == ESP_OK) {
+        adc_oneshot_chan_cfg_t config = {
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+            .atten = ADC_ATTEN_DB_12,
+        };
+        adc_oneshot_config_channel(adc1_handle, LDR_ADC_CHANNEL, &config);
+        ESP_LOGI(TAG, "LDR (ADC) hazır.");
+    }
+
+    /* DS18B20 İlklendirme */
+    onewire_bus_handle_t bus = NULL;
+    onewire_bus_config_t bus_config = {
+        .bus_gpio_num = DS18B20_GPIO,
+    };
+    onewire_bus_rmt_config_t rmt_config = {
+        .max_rx_bytes = 10,
+    };
+    
+    if (onewire_new_bus_rmt(&bus_config, &rmt_config, &bus) == ESP_OK) {
+        onewire_device_iter_handle_t iter = NULL;
+        onewire_device_t next_onewire_device;
+
+        onewire_new_device_iter(bus, &iter);
+        ESP_LOGI(TAG, "1-Wire cihazları aranıyor...");
+        if (onewire_device_iter_get_next(iter, &next_onewire_device) == ESP_OK) {
+            ds18b20_config_t ds_cfg = {};
+            ds18b20_new_device_from_enumeration(&next_onewire_device, &ds_cfg, &ds18b20_handle);
+            ESP_LOGI(TAG, "DS18B20 bulundu");
+        } else {
+            ESP_LOGW(TAG, "DS18B20 bulunamadı!");
+        }
+        onewire_del_device_iter(iter);
+    }
+}
+
+static float read_temperature(void) {
+    if (!ds18b20_handle) return 0.0f;
+    float temp = 0.0f;
+    ds18b20_trigger_temperature_conversion(ds18b20_handle);
+    vTaskDelay(pdMS_TO_TICKS(800)); // 12-bit dönüşüm için ~750ms
+    ds18b20_get_temperature(ds18b20_handle, &temp);
+    return temp;
+}
+
+static float read_ldr_percent(void) {
+    if (!adc1_handle) return 0.0f;
+    
+    // ESP32 ADC'si oldukça elektriksel gürültülüdür (Noisy). 
+    // Daha stabil değer almak için 64 örneklem alıp ortalamasını alıyoruz.
+    long adc_sum = 0;
+    int adc_raw = 0;
+    for (int i = 0; i < 64; i++) {
+        adc_oneshot_read(adc1_handle, LDR_ADC_CHANNEL, &adc_raw);
+        adc_sum += adc_raw;
+        // Çok kısa bekleme (örn: delayVTaskDelay) yapmıyoruz, arka arkaya okuyoruz
+    }
+    float raw_avg = (float)adc_sum / 64.0f;
+    
+    float percent = (raw_avg / 4095.0f) * 100.0f;
+    return percent;
+}
+
+static float read_noise_level(void) {
+    int16_t noise_buf[2048]; // ~128 ms at 16000Hz
+    size_t got = 0;
+    
+    // Kısa bir süre ambient mikrofon verisi oku
+    esp_err_t err = i2s_mic_read(noise_buf, 2048, &got, 150);
+    if (err != ESP_OK || got == 0) return 0.0f;
+    
+    // RMS (Ortalama Karekök)
+    double sum = 0;
+    for (size_t i = 0; i < got; i++) {
+        double val = (double)noise_buf[i];
+        sum += (val * val);
+    }
+    double rms = sqrt(sum / got);
+    
+    // Basit DbFS benzeri logaritmik çevirim. (max ~32768)
+    if (rms < 1.0) return 0.0f;
+    float noise_db = 20.0 * log10(rms);
+    return noise_db;
+}
+
+// ─── Akıllı LED (LEDC PWM) ──────────────────────────────────────────────────
+static void smart_led_init(void) {
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode       = LEDC_LOW_SPEED_MODE,
+        .timer_num        = LEDC_TIMER_0,
+        .duty_resolution  = LEDC_TIMER_13_BIT, // 0-8191
+        .freq_hz          = 1000,              // 1 kHz PWM
+        .clk_cfg          = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&ledc_timer);
+
+    ledc_channel_config_t ledc_channel = {
+        .speed_mode     = LEDC_LOW_SPEED_MODE,
+        .channel        = LEDC_CHANNEL_0,
+        .timer_sel      = LEDC_TIMER_0,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = SMART_LED_GPIO,
+        .duty           = 0, // Başlangıçta kapalı
+        .hpoint         = 0
+    };
+    ledc_channel_config(&ledc_channel);
+    ESP_LOGI(TAG, "Akıllı LED GPIO %d PWM yapılandırıldı.", SMART_LED_GPIO);
+}
+
+static void smart_led_update(float light_percent) {
+    int duty = 0;
+    
+    // Katmanlı (Stepped) parlaklık mantığı:
+    // Çok aydınlıksa tamamen kapalı
+    if (light_percent > 60.0f) {
+        duty = 0;
+    }
+    // Hafif loş ortam
+    else if (light_percent > 40.0f) {
+        duty = 2048; // %25 Parlaklık
+    }
+    // Karanlık ortam
+    else if (light_percent > 20.0f) {
+        duty = 4096; // %50 Parlaklık
+    }
+    // Çok karanlık ortam
+    else if (light_percent > 5.0f) {
+        duty = 6144; // %75 Parlaklık
+    }
+    // Zifiri karanlık
+    else {
+        duty = 8191; // %100 Parlaklık
+    }
+
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
 // ─── Ana Uygulama ─────────────────────────────────────────────────────────────
 void app_main(void)
 {
@@ -128,6 +286,10 @@ void app_main(void)
     display_init();
     display_update_status("Hazır");
 
+    /* Sensörler */
+    sensor_init();
+    smart_led_init();
+
     /* PSRAM tamponları */
     int16_t *rec_buf  = heap_caps_malloc(RECORD_BUF_SIZE, MALLOC_CAP_SPIRAM);
     uint8_t *resp_buf = heap_caps_malloc(RESP_BUF_SIZE,   MALLOC_CAP_SPIRAM);
@@ -138,13 +300,39 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Hazır — butona basılı tutarak konuşun, bırakınca gönderilir.");
 
+    TickType_t last_sensor_update = xTaskGetTickCount();
+
     while (1) {
+        /* Timer: Sensör Okuma ve Proaktif Uyarı Kontrolü */
+        if ((xTaskGetTickCount() - last_sensor_update) * portTICK_PERIOD_MS >= SENSOR_UPDATE_MS) {
+            float temp = read_temperature();
+            float light = read_ldr_percent();
+            float noise = read_noise_level();
+            ESP_LOGI(TAG, "[Timer] Sensör okundu: %.1f C, Işık: %.1f%%, Gürültü: %.1f dB", temp, light, noise);
+            last_sensor_update = xTaskGetTickCount();
+            
+            // LED Parlaklığını ışığa göre ayarla
+            smart_led_update(light);
+            
+            size_t resp_len = 0;
+            esp_err_t err = voice_client_sensor_update(temp, light, noise, resp_buf, RESP_BUF_SIZE, &resp_len);
+            if (err == ESP_OK && resp_len > 10) {
+                ESP_LOGI(TAG, "▶ Proaktif Uyarı Çalınıyor (Size: %zu)", resp_len);
+                i2s_player_play(resp_buf, resp_len);
+            }
+        }
+
         /* 1. Buton bekleme ve Pomodoro Kontrolü */
         bool event_triggered = false;
         char pomo_evt[32] = {0};
         static uint32_t last_log_ticks = 0;
 
-        while (!button_pressed()) {
+        bool pressed = false;
+        for (int i=0; i<50; i++) { // ~1 sn lik blokta bekle, timer'a fırsat ver
+            if (button_pressed()) {
+                pressed = true; break;
+            }
+
             if (pomodoro_check_event(pomo_evt)) {
                 event_triggered = true;
                 break;
@@ -169,9 +357,8 @@ void app_main(void)
                 }
                 last_log_ticks = now_ticks;
             }
-            
 
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(20));
         }
 
         if (event_triggered) {
@@ -194,6 +381,8 @@ void app_main(void)
             }
             continue;
         }
+
+        if (!pressed) continue;
 
         vTaskDelay(pdMS_TO_TICKS(50)); /* debounce */
         if (!button_pressed()) continue;

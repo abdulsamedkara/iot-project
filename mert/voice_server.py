@@ -10,6 +10,7 @@ import wave
 import tempfile
 import subprocess
 import logging
+import time
 from flask import Flask, request, send_file, jsonify, make_response
 import requests
 from faster_whisper import WhisperModel
@@ -40,6 +41,21 @@ MIC_SAMPLE_WIDTH = 2   # 16-bit
 
 SERVER_HOST      = "0.0.0.0"
 SERVER_PORT      = 8080
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Sensör Durumları ────────────────────────────────────────────────────────
+sensor_state = {
+    "temperature": 25.0,
+    "light": 100.0,
+    "noise": 0.0,
+    "last_update": 0,
+    "last_warning_time": 0
+}
+
+WARNING_COOLDOWN = 60 # 30 dakika
+TEMP_THRESHOLD_HIGH = 28.0
+LIGHT_THRESHOLD_LOW = 10.0
+NOISE_THRESHOLD_HIGH = 50.0
 # ─────────────────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -169,6 +185,11 @@ def transcribe():
             if not text:
                 return jsonify({"error": "Konuşma algılanamadı"}), 422
 
+            # Sensör verisi güncelse bağlam ekle
+            context = ""
+            if time.time() - sensor_state["last_update"] < 3600:
+                context = f"[SİSTEM NOTU: Odanın şu anki sıcaklığı {sensor_state['temperature']:.1f}°C, ışık seviyesi %{sensor_state['light']:.0f}, ortam gürültüsü {sensor_state['noise']:.1f} dB] "
+
             # Prompt'a kullanıcının durumunu da ekleyebiliriz
             state = request.headers.get("X-Pomo-State", "IDLE")
             prompt_context = ""
@@ -177,7 +198,9 @@ def transcribe():
             elif state == "BREAK":
                 prompt_context = "[SİSTEM: Kullanıcı şu an pomodoro molasında. YENİ SAYAÇ BAŞLATMA ETİKETİ KULLANMA!]\n"
             
-            reply = llm(prompt_context + text)
+            final_prompt = prompt_context + context + text
+            log.info(f"Transcribe LLM Prompt: {final_prompt}")
+            reply = llm(final_prompt)
             
         if not reply:
             return jsonify({"error": "LLM yanıtı boş"}), 502
@@ -189,7 +212,11 @@ def transcribe():
         elif "[CMD:POMO_STOP]" in reply:
             action = "POMO_STOP"
             reply = reply.replace("[CMD:POMO_STOP]", "").strip()
-
+            
+        # Eğer sadece kod tag'ı geldiyse ve metin kalmadıysa varsayılan sesli yanıt oluştur
+        if not reply:
+            reply = "Tamamdır."
+            
         # tts WAV binary döndürür
         wav_audio = tts(reply)
 
@@ -213,6 +240,73 @@ def transcribe():
 
     except Exception as e:
         log.exception("Pipeline hatası")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/sensor_update", methods=["POST"])
+def sensor_update():
+    global sensor_state
+    try:
+        data = request.get_json()
+        if not data:
+            return "", 204
+            
+        temp = data.get("temperature", sensor_state["temperature"])
+        light = data.get("light", sensor_state["light"])
+        noise = data.get("noise", sensor_state["noise"])
+        
+        sensor_state["temperature"] = temp
+        sensor_state["light"] = light
+        sensor_state["noise"] = noise
+        sensor_state["last_update"] = time.time()
+        
+        log.info(f"Sensör Güncellemesi: Sıcaklık={temp}C, Işık={light}%, Gürültü={noise:.1f}dB")
+        
+        # Proaktif uyarı kontrolü
+        now = time.time()
+        if now - sensor_state["last_warning_time"] > WARNING_COOLDOWN:
+            warning_reason = None
+            if temp > TEMP_THRESHOLD_HIGH:
+                warning_reason = f"Oda çok sıcak ({temp} derece)"
+            elif light < LIGHT_THRESHOLD_LOW:
+                warning_reason = f"Oda fazla karanlık (Işık seviyesi %{light})"
+            elif noise > NOISE_THRESHOLD_HIGH:
+                warning_reason = f"Ortam çok gürültülü ({noise:.1f} dB)"
+                
+            if warning_reason:
+                sensor_state["last_warning_time"] = now
+                log.info(f"Proaktif uyarı tetiklendi: {warning_reason}")
+                
+                # LLM'e uyarı metni hazırlat
+                prompt = (
+                    f"Kullanıcı çalışıyor fakat ortamı için şu uyarıyı yapman gerekiyor: '{warning_reason}'. "
+                    "Lütfen sadece tek bir cümleyle çok kısa, kibar ve sevimli bir şekilde kullanıcıyı uyar. "
+                    "Çok uzatma, sadece öneride bulun (örneğin: 'Odan çok sıcak, istersen biraz camı açabilirsin.')."
+                )
+                
+                full_prompt = "[SİSTEM: Sen sevimli ve düşünceli bir fiziksel masaüstü asistanısın.]\n" + prompt
+                reply = llm(full_prompt)
+                
+                # TTS
+                wav_audio = tts(reply)
+                
+                # PCM Çıkar
+                buf = io.BytesIO(wav_audio)
+                with wave.open(buf, 'rb') as wf:
+                    raw_pcm = wf.readframes(wf.getnframes())
+                    
+                return send_file(
+                    io.BytesIO(raw_pcm),
+                    mimetype="application/octet-stream",
+                    as_attachment=True,
+                    download_name="warning.pcm"
+                )
+                
+        # Uyarılık bir durum yoksa
+        return "", 204
+        
+    except Exception as e:
+        log.exception("Sensor update hatası")
         return jsonify({"error": str(e)}), 500
 
 
