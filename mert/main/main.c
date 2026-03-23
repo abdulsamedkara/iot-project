@@ -280,6 +280,76 @@ static void smart_led_update(float light_percent) {
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+// ─── L298N Fan Kontrolü (PWM Hız Ayarlı) ────────────────────────────────────
+static void fan_init(void)
+{
+    // IN4 yön pini
+    gpio_config_t gc = {
+        .pin_bit_mask = (1ULL << FAN_IN4_GPIO),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&gc);
+    gpio_set_level(FAN_IN4_GPIO, 0);
+
+    // ENA pini - LEDC PWM ile hız kontrolü
+    ledc_timer_config_t fan_timer = {
+        .speed_mode      = LEDC_LOW_SPEED_MODE,
+        .timer_num       = FAN_LEDC_TIMER,
+        .duty_resolution = FAN_DUTY_RES,
+        .freq_hz         = FAN_PWM_FREQ_HZ,
+        .clk_cfg         = LEDC_AUTO_CLK,
+    };
+    ledc_timer_config(&fan_timer);
+
+    ledc_channel_config_t fan_ch = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel    = FAN_LEDC_CHANNEL,
+        .timer_sel  = FAN_LEDC_TIMER,
+        .intr_type  = LEDC_INTR_DISABLE,
+        .gpio_num   = FAN_ENA_GPIO,
+        .duty       = 0,
+        .hpoint     = 0,
+    };
+    ledc_channel_config(&fan_ch);
+    ESP_LOGI(TAG, "Fan: IN4=GPIO%d ENA=GPIO%d (PWM)",
+             FAN_IN4_GPIO, FAN_ENA_GPIO);
+}
+
+/**
+ * @brief Sıcaklığa göre fan hızını ayarlar.
+ *        temp < FAN_TEMP_ON   → fan kapalı
+ *        FAN_TEMP_ON..MAX     → doğrusal PWM (%0 → %100)
+ *        temp >= FAN_TEMP_MAX → fan tam hızda (%100)
+ */
+static void fan_update(float temp_c)
+{
+    uint32_t duty = 0;
+
+    if (temp_c >= FAN_TEMP_ON) {
+        // Doğrusal interpolasyon: FAN_TEMP_ON → 0%, FAN_TEMP_MAX → 255
+        float ratio = (temp_c - FAN_TEMP_ON) / (FAN_TEMP_MAX - FAN_TEMP_ON);
+        if (ratio > 1.0f) ratio = 1.0f;
+        // Minimum %40 duty ile başla (motorun dönebilmesi için)
+        duty = (uint32_t)(51.0f + ratio * (127.0f - 51.0f));
+
+        // Yön: IN4=HIGH (tek yön)
+        gpio_set_level(FAN_IN4_GPIO, 1);
+        ESP_LOGI(TAG, "[Fan] %.1f°C → duty=%lu (%d%%)",
+                 temp_c, duty, (int)(duty * 100 / 255));
+    } else {
+        // Sıcaklık düşük, fanı durdur
+        gpio_set_level(FAN_IN4_GPIO, 0);
+        duty = 0;
+        ESP_LOGI(TAG, "[Fan] %.1f°C → kapalı", temp_c);
+    }
+
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, FAN_LEDC_CHANNEL, duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, FAN_LEDC_CHANNEL);
+}
+
 // ─── UI Navigasyon Görevi (Task) ──────────────────────────────────────────────
 static uint32_t s_last_interaction_ticks = 0;
 
@@ -352,6 +422,7 @@ void app_main(void)
     /* Sensörler */
     sensor_init();
     smart_led_init();
+    fan_init();
 
     /* PSRAM tamponları */
     int16_t *rec_buf  = heap_caps_malloc(RECORD_BUF_SIZE, MALLOC_CAP_SPIRAM);
@@ -376,6 +447,7 @@ void app_main(void)
             
             // LED Parlaklığını ışığa göre ayarla
             smart_led_update(light);
+            fan_update(temp);
             
             last_temp = temp;
             last_ldr = light;

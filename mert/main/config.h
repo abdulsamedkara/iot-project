@@ -1,12 +1,14 @@
 #pragma once
 
 // ─── WiFi ────────────────────────────────────────────────────────────────────
-#define WIFI_SSID         "SUPERONLINE_Wi-Fi_A1C2"
-#define WIFI_PASSWORD     "zKx2Z3uy7M"
+// #define WIFI_SSID         "SUPERONLINE_Wi-Fi_A1C2"
+// #define WIFI_PASSWORD     "zKx2Z3uy7M"
+#define WIFI_SSID         "Raspi"
+#define WIFI_PASSWORD     "00000000"
 #define WIFI_MAX_RETRY    10
 
 // ─── PC Sunucu ───────────────────────────────────────────────────────────────
-#define SERVER_HOST       "192.168.1.8"   // PC'nin yerel IP'sini girin
+#define SERVER_HOST       "10.162.138.241"   // PC'nin yerel IP'sini girin
 #define SERVER_PORT       8080
 
 // ─── INMP441 I2S Mikrofon ────────────────────────────────────────────────────
@@ -56,4 +58,19 @@
 #define TFT_WIDTH         240
 #define TFT_HEIGHT        320
 #define TFT_SPI_HOST      SPI2_HOST
+
+// ─── L298N Fan Motor Sürücüsü ─────────────────────────────────────────────────
+// IN4 → HIGH olduğunda motor döner (tek yön)
+#define FAN_IN4_GPIO      7             // L298N IN4 pini
+#define FAN_ENA_GPIO      18            // L298N Enable A (PWM hız kontrolü)
+
+// LEDC kanal/timer (LEDC_CHANNEL_0/TIMER_0 LED için zaten kullanılıyor)
+#define FAN_LEDC_TIMER    LEDC_TIMER_1
+#define FAN_LEDC_CHANNEL  LEDC_CHANNEL_1
+#define FAN_PWM_FREQ_HZ   25000         // 25 kHz (DC motor için sessiz frekans)
+#define FAN_DUTY_RES      LEDC_TIMER_8_BIT  // 0-255
+
+// Sıcaklık eşikleri (°C)
+#define FAN_TEMP_ON       28.0f         // Bu sıcaklığın üzerinde fan çalışır
+#define FAN_TEMP_MAX      40.0f         // Bu sıcaklıkta fan %100 hızda
 
