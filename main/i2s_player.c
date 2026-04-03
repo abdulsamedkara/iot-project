@@ -41,7 +41,7 @@ esp_err_t i2s_player_init(uint32_t sample_rate, uint8_t bits, uint8_t channels)
     ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(s_tx, &std), TAG, "init_std");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(s_tx), TAG, "enable");
 
-    ESP_LOGI(TAG, "Başlatıldı: BCK=%d WS=%d DIN=%d @ %luHz %ubit %uch",
+    ESP_LOGI(TAG, "Initialized: BCK=%d WS=%d DIN=%d @ %luHz %ubit %uch",
              SPK_BCK_GPIO, SPK_WS_GPIO, SPK_DIN_GPIO,
              (unsigned long)sample_rate, bits, channels);
     return ESP_OK;

@@ -6,12 +6,12 @@ static pomo_state_t s_state = POMO_IDLE;
 static int64_t s_state_start_us = 0;
 static int s_completed_count = 0;
 
-// Orijinal Pomodoro süreleri (saniye)
+// Original Pomodoro duration (seconds)
 // #define WORK_DURATION_SEC  (25 * 60)
 // #define BREAK_DURATION_SEC (5 * 60)
 // #define LONG_BREAK_SEC     (20 * 60)
 
-// Test için süreleri çok düşürmek istersen burayı aç:
+// Uncomment here to drastically reduce durations for testing:
 #define WORK_DURATION_SEC 30
 #define BREAK_DURATION_SEC 20
 #define LONG_BREAK_SEC 20
@@ -25,7 +25,7 @@ void pomodoro_init(void) {
 
 bool pomodoro_start(void) {
     if (s_state == POMO_WORK) {
-        return false; // Zaten çalışıyor
+        return false; // Already running
     }
     s_state = POMO_WORK;
     s_state_start_us = esp_timer_get_time();
@@ -102,7 +102,7 @@ bool pomodoro_check_event(char* event_out) {
         elapsed_sec >= pomodoro_get_total_sec()) {
         
         bool was_long = (s_state == POMO_LONG_BREAK);
-        s_state = POMO_WORK; // Otomatik olarak yeni çalışmaya başla
+        s_state = POMO_WORK; // Automatically start new work session
         s_state_start_us = now_us;
         
         if (was_long) {

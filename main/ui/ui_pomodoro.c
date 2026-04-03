@@ -11,24 +11,24 @@ static lv_obj_t *container_stars;
 static lv_obj_t *stars[MAX_STARS];
 
 void ui_pomodoro_init(lv_obj_t *parent) {
-    // ─── Arka Plan ───────────────────────────────────────────
+    // ─── Background ──────────────────────────────────────────
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0D1017), 0);
 
-    // ─── Başlık ──────────────────────────────────────────────
+    // ─── Title ───────────────────────────────────────────────
     lv_obj_t *lbl_title = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_title, lv_color_hex(0x90A4AE), 0);
     lv_label_set_text(lbl_title, "ESP32 POMODORO");
     lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 10);
 
-    // ─── Üst Separator ───────────────────────────────────────
+    // ─── Top Separator ───────────────────────────────────────
     lv_obj_t *sep = lv_obj_create(parent);
     lv_obj_set_size(sep, 210, 1);
     lv_obj_align(sep, LV_ALIGN_TOP_MID, 0, 30);
     lv_obj_set_style_bg_color(sep, lv_color_hex(0x263238), 0);
     lv_obj_set_style_border_width(sep, 0, 0);
 
-    // ─── Arc (Halka) ─────────────────────────────────────────
+    // ─── Arc (Ring) ──────────────────────────────────────────
     arc_time = lv_arc_create(parent);
     lv_obj_set_size(arc_time, 195, 195);
     lv_arc_set_rotation(arc_time, 270);
@@ -40,7 +40,7 @@ void ui_pomodoro_init(lv_obj_t *parent) {
     lv_obj_clear_flag(arc_time, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(arc_time, LV_ALIGN_CENTER, 0, 5);
 
-    // ─── Mod Etiketi (ODAKLAN / DINLEN) ──────────────────────
+    // ─── Mode Label (FOCUS / BREAK) ──────────────────────────
     lbl_mode = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_mode, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_mode, lv_color_hex(0x4CAF50), 0);
@@ -48,14 +48,14 @@ void ui_pomodoro_init(lv_obj_t *parent) {
     lv_label_set_text(lbl_mode, STR_READY);
     lv_obj_align(lbl_mode, LV_ALIGN_CENTER, 0, -18);
 
-    // ─── Zaman Metni ─────────────────────────────────────────
+    // ─── Time Text ───────────────────────────────────────────
     lbl_time = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_time, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl_time, lv_color_white(), 0);
     lv_label_set_text(lbl_time, "--:--");
     lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, 8);
 
-    // ─── Pomodoro Sayacı (Alt Daireler) ──────────────────────
+    // ─── Pomodoro Counter (Bottom Circles) ───────────────────
     container_stars = lv_obj_create(parent);
     lv_obj_set_size(container_stars, 220, 22);
     lv_obj_align(container_stars, LV_ALIGN_BOTTOM_MID, 0, -12);
@@ -111,9 +111,9 @@ void ui_pomodoro_update(pomo_state_t state, uint32_t remaining_sec, uint32_t tot
     int display_count = completed_count % MAX_STARS;
     for (int i = 0; i < MAX_STARS; i++) {
         if (i < display_count) {
-            lv_obj_set_style_bg_color(stars[i], lv_color_hex(0xFF5252), 0);  // Tamamlanan: Kırmızı
+            lv_obj_set_style_bg_color(stars[i], lv_color_hex(0xFF5252), 0);  // Completed: Red
         } else {
-            lv_obj_set_style_bg_color(stars[i], lv_color_hex(0x263238), 0);  // Boş: Gri
+            lv_obj_set_style_bg_color(stars[i], lv_color_hex(0x263238), 0);  // Empty: Gray
         }
     }
 }

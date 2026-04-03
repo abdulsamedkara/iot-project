@@ -10,68 +10,68 @@ static lv_obj_t *lbl_status;
 static lv_obj_t *bar_breath;
 static uint32_t s_fake_hh = 9, s_fake_mm = 0, s_fake_ss = 0;
 
-// Nefes animasyonu için callback
+// Callback for breath animation
 static void breath_anim_cb(void *var, int32_t v) {
     lv_obj_t *bar = (lv_obj_t *)var;
     lv_bar_set_value(bar, v, LV_ANIM_OFF);
 }
 
 void ui_idle_init(lv_obj_t *parent) {
-    // ─── Arka Plan ───────────────────────────────────────────
+    // ─── Background ──────────────────────────────────────────
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0D1B2A), 0);
     lv_obj_set_style_text_color(parent, lv_color_white(), 0);
 
-    // ─── Sol Üst Köşe: Cihaz İsmi ────────────────────────────
+    // ─── Top Left: Device Name ───────────────────────────────
     lv_obj_t *lbl_name = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_name, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_name, lv_color_hex(0x546E7A), 0);
     lv_label_set_text(lbl_name, "POMODORO BOT");
     lv_obj_align(lbl_name, LV_ALIGN_TOP_LEFT, 10, 8);
 
-    // ─── Sağ Üst Köşe: WiFi İkonu ────────────────────────────
+    // ─── Top Right: WiFi Icon ────────────────────────────────
     lv_obj_t *lbl_wifi = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_wifi, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl_wifi, lv_color_hex(0x4CAF50), 0);
     lv_label_set_text(lbl_wifi, LV_SYMBOL_WIFI);
     lv_obj_align(lbl_wifi, LV_ALIGN_TOP_RIGHT, -10, 8);
 
-    // ─── Yatay Ayırıcı Çizgi (üst) ────────────────────────────
+    // ─── Horizontal Separator (top) ──────────────────────────
     lv_obj_t *sep_top = lv_obj_create(parent);
     lv_obj_set_size(sep_top, 220, 1);
     lv_obj_align(sep_top, LV_ALIGN_TOP_MID, 0, 28);
     lv_obj_set_style_bg_color(sep_top, lv_color_hex(0x1E3040), 0);
     lv_obj_set_style_border_width(sep_top, 0, 0);
 
-    // ─── Büyük Saat ──────────────────────────────────────────
+    // ─── Large Clock ─────────────────────────────────────────
     lbl_clock = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_clock, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl_clock, lv_color_white(), 0);
     lv_label_set_text(lbl_clock, "09:00");
     lv_obj_align(lbl_clock, LV_ALIGN_CENTER, 0, -22);
 
-    // ─── Tarih ───────────────────────────────────────────────
-    // montserrat_20 + saf beyaz → kesinlikle okunabilir
+    // ─── Date ────────────────────────────────────────────────
+    // montserrat_20 + pure white -> totally readable
     lbl_date = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_date, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_date, lv_color_white(), 0);
     lv_label_set_text(lbl_date, "21.03.2026");
     lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 14);
 
-    // ─── Yatay Ayırıcı Çizgi ─────────────────────────────────
+    // ─── Horizontal Separator ────────────────────────────────
     lv_obj_t *sep_bot = lv_obj_create(parent);
     lv_obj_set_size(sep_bot, 140, 1);
     lv_obj_align(sep_bot, LV_ALIGN_CENTER, 0, 38);
     lv_obj_set_style_bg_color(sep_bot, lv_color_hex(0x1E3040), 0);
     lv_obj_set_style_border_width(sep_bot, 0, 0);
 
-    // ─── Durum Metni (HAZIR) ─────────────────────────────────
+    // ─── Status Text (READY) ─────────────────────────────────
     lbl_status = lv_label_create(parent);
     lv_obj_set_style_text_font(lbl_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_status, lv_color_hex(0x4CAF50), 0);
     lv_label_set_text(lbl_status, STR_STATUS_READY);
     lv_obj_align(lbl_status, LV_ALIGN_CENTER, 0, 52);
 
-    // ─── Nefes Çubuğu ────────────────────────────────────────
+    // ─── Breath Bar ──────────────────────────────────────────
     bar_breath = lv_bar_create(parent);
     lv_obj_set_size(bar_breath, 140, 4);
     lv_bar_set_range(bar_breath, 0, 100);
@@ -82,7 +82,7 @@ void ui_idle_init(lv_obj_t *parent) {
     lv_obj_set_style_bg_color(bar_breath, lv_color_hex(0x29B6F6), LV_PART_INDICATOR);
     lv_obj_set_style_radius(bar_breath, 2, LV_PART_INDICATOR);
 
-    // Nefes animasyonu
+    // Breath animation
     static lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, bar_breath);

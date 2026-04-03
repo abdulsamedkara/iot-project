@@ -1,19 +1,18 @@
 #pragma once
 
-// ─── Dil Seçimi ───────────────────────────────────────────────────────────────
-// Yalnızca bir tanesi aktif olmalı.
+// ─── Language Selection ──────────────────────────────────────────────────────────
 // Only one of these should be active at a time.
 // #define LANG_TR
 #define LANG_EN
 
 #if defined(LANG_TR) && defined(LANG_EN)
-#  error "Hem LANG_TR hem LANG_EN tanımlanamaz. Sadece birini etkin bırakın."
+#  error "Cannot define both LANG_TR and LANG_EN. Leave only one active."
 #endif
 #if !defined(LANG_TR) && !defined(LANG_EN)
-#  error "LANG_TR veya LANG_EN tanımlanmalı."
+#  error "LANG_TR or LANG_EN must be defined."
 #endif
 
-// ─── UI Etiketleri ────────────────────────────────────────────────────────────
+// ─── UI Labels ────────────────────────────────────────────────────────────────
 
 #if defined(LANG_TR)
 /* --- Pomodoro UI --- */

@@ -51,22 +51,22 @@ static esp_err_t http_evt(esp_http_client_event_t *evt)
             ctx->len += evt->data_len;
         } else {
             ctx->overflow = true;
-            ESP_LOGW(TAG, "Yanıt tamponu doldu!");
+            ESP_LOGW(TAG, "Response buffer full!");
         }
     } else if (evt->event_id == HTTP_EVENT_ON_HEADER) {
         if (strcasecmp(evt->header_key, "X-Action") == 0 && ctx->action_out) {
             strncpy(ctx->action_out, evt->header_value, 31);
             ctx->action_out[31] = '\0';
-            ESP_LOGI(TAG, "Gelen X-Action: %s", ctx->action_out);
+            ESP_LOGI(TAG, "Received X-Action: %s", ctx->action_out);
         } else if (strcasecmp(evt->header_key, "X-Transcript-URL") == 0 && ctx->transcript_out) {
             url_decode(ctx->transcript_out, evt->header_value, ctx->transcript_sz);
-            ESP_LOGI(TAG, "Gelen Transcript: %s", ctx->transcript_out);
+            ESP_LOGI(TAG, "Received Transcript: %s", ctx->transcript_out);
         } else if (strcasecmp(evt->header_key, "X-Answer-URL") == 0 && ctx->answer_out) {
             url_decode(ctx->answer_out, evt->header_value, ctx->answer_sz);
-            ESP_LOGI(TAG, "Gelen Answer: %s", ctx->answer_out);
+            ESP_LOGI(TAG, "Received Answer: %s", ctx->answer_out);
         }
     } else if (evt->event_id == HTTP_EVENT_ERROR) {
-        ESP_LOGE(TAG, "HTTP hatası");
+        ESP_LOGE(TAG, "HTTP error");
     }
     return ESP_OK;
 }
@@ -97,7 +97,7 @@ esp_err_t voice_client_transcribe(const uint8_t *pcm_data, size_t pcm_len,
         .method         = HTTP_METHOD_POST,
         .event_handler  = http_evt,
         .user_data      = &ctx,
-        .timeout_ms     = 180000,  /* LLM ve TTS için 3 dakika bekleme */
+        .timeout_ms     = 180000,  /* 3 minute timeout for LLM and TTS */
         .buffer_size    = 4096,
         .buffer_size_tx = 4096,
         .keep_alive_enable = true,
@@ -120,20 +120,20 @@ esp_err_t voice_client_transcribe(const uint8_t *pcm_data, size_t pcm_len,
         esp_http_client_set_post_field(client, "", 0);
     }
 
-    ESP_LOGI(TAG, "Gönderiliyor: %zu bayt PCM → %s", pcm_len, url);
+    ESP_LOGI(TAG, "Sending: %zu bytes PCM -> %s", pcm_len, url);
     esp_err_t ret = esp_http_client_perform(client);
 
     if (ret == ESP_OK) {
         int status = esp_http_client_get_status_code(client);
         if (status == 200 && !ctx.overflow) {
             *resp_len = ctx.len;
-            ESP_LOGI(TAG, "Yanıt: %zu bayt WAV", ctx.len);
+            ESP_LOGI(TAG, "Response: %zu bytes WAV", ctx.len);
         } else {
-            ESP_LOGE(TAG, "Sunucu hatası: HTTP %d", status);
+            ESP_LOGE(TAG, "Server error: HTTP %d", status);
             ret = ESP_FAIL;
         }
     } else {
-        ESP_LOGE(TAG, "HTTP başarısız: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "HTTP failed: %s", esp_err_to_name(ret));
     }
 
     esp_http_client_cleanup(client);
@@ -154,7 +154,7 @@ esp_err_t voice_client_sensor_update(float temp, float light, float noise,
         .method         = HTTP_METHOD_POST,
         .event_handler  = http_evt,
         .user_data      = &ctx,
-        .timeout_ms     = 60000, /* LLM ve TTS 30-40 sn sürebilir, 1 dk bekleme süresi */
+        .timeout_ms     = 60000, /* LLM and TTS can take 30-40 sec, 1 min timeout */
         .buffer_size    = 4096,
         .buffer_size_tx = 4096,
         .keep_alive_enable = true,
@@ -169,23 +169,23 @@ esp_err_t voice_client_sensor_update(float temp, float light, float noise,
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_post_field(client, payload, strlen(payload));
 
-    ESP_LOGI(TAG, "Sensör verisi gönderiliyor: %s", payload);
+    ESP_LOGI(TAG, "Sending sensor data: %s", payload);
     esp_err_t ret = esp_http_client_perform(client);
 
     if (ret == ESP_OK) {
         int status = esp_http_client_get_status_code(client);
         if (status == 200 && !ctx.overflow) {
             *resp_len = ctx.len;
-            ESP_LOGI(TAG, "Proaktif uyarı yanıtı: %zu bayt WAV", ctx.len);
+            ESP_LOGI(TAG, "Proactive warning response: %zu bytes WAV", ctx.len);
         } else if (status == 204) {
             *resp_len = 0;
-            ESP_LOGI(TAG, "Sensör güncellendi, proaktif uyarı yok.");
+            ESP_LOGI(TAG, "Sensor updated, no proactive warning.");
         } else {
-            ESP_LOGE(TAG, "Sunucu hatası: HTTP %d", status);
+            ESP_LOGE(TAG, "Server error: HTTP %d", status);
             ret = ESP_FAIL;
         }
     } else {
-        ESP_LOGE(TAG, "HTTP başarısız: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "HTTP failed: %s", esp_err_to_name(ret));
     }
 
     esp_http_client_cleanup(client);

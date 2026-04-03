@@ -101,7 +101,7 @@ esp_err_t display_init(void) {
     ESP_ERROR_CHECK(esp_timer_create(&t_args, &periodic_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 2 * 1000));
 
-    // Tüm ekranları oluştur
+    // Create all screens
     scr_idle     = lv_obj_create(NULL);
     scr_pomodoro = lv_obj_create(NULL);
     scr_sensor   = lv_obj_create(NULL);
@@ -114,7 +114,7 @@ esp_err_t display_init(void) {
     ui_voice_init(scr_voice);
     ui_ai_init(scr_ai);
 
-    lv_disp_load_scr(scr_idle); // Varsayılan: Bekleme Ekranı
+    lv_disp_load_scr(scr_idle); // Default: Idle Screen
 
     xTaskCreate(display_task, "gui_task", 4096, NULL, 5, NULL);
     ESP_LOGI(TAG, "Display OK.");

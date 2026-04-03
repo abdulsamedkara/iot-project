@@ -31,12 +31,12 @@ esp_err_t i2s_mic_init(void)
             .invert_flags = {false, false, false},
         },
     };
-    std.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT; /* INMP441 L/R=GND → sol kanal */
+    std.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT; /* INMP441 L/R=GND -> left channel */
 
     ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(s_rx, &std), TAG, "init_std");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(s_rx), TAG, "enable");
 
-    ESP_LOGI(TAG, "Başlatıldı: SCK=%d WS=%d SD=%d @ %dHz",
+    ESP_LOGI(TAG, "Initialized: SCK=%d WS=%d SD=%d @ %dHz",
              MIC_SCK_GPIO, MIC_WS_GPIO, MIC_SD_GPIO, MIC_SAMPLE_RATE);
     return ESP_OK;
 }
@@ -53,7 +53,7 @@ esp_err_t i2s_mic_read(int16_t *buf, size_t buf_samples,
                                      &bytes_read, pdMS_TO_TICKS(timeout_ms));
     size_t frames = bytes_read / sizeof(int32_t);
     for (size_t i = 0; i < frames; i++) {
-        buf[i] = (int16_t)(raw[i] >> 14); /* 32-bit MSB → 16-bit */
+        buf[i] = (int16_t)(raw[i] >> 14); /* 32-bit MSB -> 16-bit */
     }
     free(raw);
     *out_samples = frames;

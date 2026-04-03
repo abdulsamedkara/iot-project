@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Pomodoro Chatbot - PC Ses Sunucusu
-ESP32'den ham PCM alır → Whisper STT → Ollama LLM → Piper TTS → WAV döner
+Pomodoro Chatbot - PC Voice Server
+Receives raw PCM from ESP32 -> Whisper STT -> Ollama LLM -> Piper TTS -> returns WAV
 """
 
 import os
@@ -17,7 +17,7 @@ import requests
 import urllib.parse
 from faster_whisper import WhisperModel
 
-# Turkce karakterleri LVGL'in destekledigi ASCII'ye donustur
+# Convert Turkish characters to ASCII supported by LVGL
 def tr_to_ascii(text: str) -> str:
     tr_map = {
         "\u015e": "S", "\u015f": "s", "\u011e": "G", "\u011f": "g",
@@ -27,16 +27,16 @@ def tr_to_ascii(text: str) -> str:
     }
     return text.translate(str.maketrans(tr_map))
 
-# ─── Dil Seçimi ──────────────────────────────────────────────────────────────
-# "tr" → Türkçe  |  "en" → English
+# ─── Language Selection ──────────────────────────────────────────────────────────────
+# "tr" → Turkish  |  "en" → English
 LANGUAGE = "en"
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ─── Yapılandırma ────────────────────────────────────────────────────────────
+# ─── Configuration ────────────────────────────────────────────────────────────
 WHISPER_MODEL    = "medium"      # tiny/base/small/medium/large-v2
 WHISPER_DEVICE   = "cpu"         # "cpu" or "cuda"
 WHISPER_COMPUTE  = "int8"        # int8 (CPU), float16 (GPU)
-WHISPER_LANGUAGE = LANGUAGE      # otomatik olarak LANGUAGE'den alınır
+WHISPER_LANGUAGE = LANGUAGE      # automatically taken from LANGUAGE
 
 OLLAMA_URL       = "http://localhost:11434/api/generate"
 OLLAMA_MODEL     = "gemma3:4b"
@@ -54,22 +54,22 @@ if LANGUAGE == "tr":
         "YANLIŞ örnek: 'Merhaba nasılsın?' -> 'Pomodoro başlatıyor! [CMD:POMO_START]' (YAPMA!) "
         "DOĞRU örnek: 'Pomodoro başlatır mısın?' -> 'Tabii ki! Başarılı bir çalışma dilerim. [CMD:POMO_START]'"
     )
-    # Pomodoro event'leri için LLM prompt'ları
+    # LLM prompts for Pomodoro events
     PROMPT_WORK_DONE          = "Kullanıcının 25 dakikalık çalışma süresi (Pomodoro) bitti. Ona çok kısa ve neşeli bir şekilde 5 dakikalık bir mola vermesini söyle ve tebrik et."
     PROMPT_WORK_DONE_LONG     = "Kullanıcı 4. pomodorosunu bitirdi! Bu harika bir başarı. Şimdi ona 20 dakikalık uzun bir mola vermesini söyle ve çok içten tebrik et."
     PROMPT_BREAK_DONE         = "Kullanıcının 5 dakikalık molası bitti. Ona çok kısa ve enerjik bir şekilde tekrar çalışmaya dönme zamanı olduğunu söyle."
     PROMPT_LONG_BREAK_DONE    = "Kullanıcının 20 dakikalık uzun molası bitti. Harika dinlenmiş olmalı. Şimdi tekrar tam odaklanma ile çalışmaya başlama vaktinin geldiğini söyle."
-    # Sensör bağlamı
+    # Sensor context
     SENSOR_CONTEXT_TMPL       = "[SİSTEM NOTU: Odanın şu anki sıcaklığı {temp:.1f}°C, ışık seviyesi %{light:.0f}, ortam gürültüsü {noise:.1f} dB] "
     SENSOR_WORK_CTX           = "[SİSTEM: Kullanıcı ŞU AN pomodoro çalışmasında aktif. Dikkatini dağıtma. YENİ SAYAÇ BAŞLATMA ETİKETİ KULLANMA! Sadece sorusuna yanıt ver.]\n"
     SENSOR_BREAK_CTX          = "[SİSTEM: Kullanıcı şu an pomodoro {state} molasında. YENİ SAYAÇ BAŞLATMA ETİKETİ KULLANMA!]\n"
-    # Sensör uyarı prompt'u
+    # Sensor warning prompt
     SENSOR_WARN_SYS           = "[SİSTEM: Sen sevimli ve düşünceli bir fiziksel masaüstü asistanısın.]\n"
     SENSOR_WARN_TMPL          = "Kullanıcı çalışıyor fakat ortamı için şu uyarıyı yapman gerekiyor: '{reason}'. Lütfen sadece tek bir cümleyle çok kısa, kibar ve sevimli bir şekilde kullanıcıyı uyar. Çok uzatma, sadece öneride bulun (örneğin: 'Odan çok sıcak, istersen biraz camı açabilirsin.')."
     SENSOR_WARN_TEMP          = "Oda çok sıcak ({temp} derece)"
     SENSOR_WARN_LIGHT         = "Oda fazla karanlık (Işık seviyesi %{light})"
     SENSOR_WARN_NOISE         = "Ortam çok gürültülü ({noise:.1f} dB)"
-    # Fallback yanıtları
+    # Fallback responses
     FALLBACK_OK               = "Tamamdır."
     FALLBACK_RETRY            = "Anlayamadim, tekrar eder misin?"
     ERROR_NO_AUDIO            = "Ses verisi yok"
@@ -119,7 +119,7 @@ SERVER_HOST      = "0.0.0.0"
 SERVER_PORT      = 8080
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ─── Sensör Durumları ────────────────────────────────────────────────────────
+# ─── Sensor States ───────────────────────────────────────────────────────────
 sensor_state = {
     "temperature": 25.0,
     "light": 100.0,
@@ -128,8 +128,8 @@ sensor_state = {
     "last_warning_time": 0
 }
 
-# Test amaçlı bazı değerler düşürüldü, gerçek kullanımda daha yüksek değerlere ayarlanabilir
-WARNING_COOLDOWN = 60 # 30 dakika
+# Values lowered for testing; can be set higher for real usage
+WARNING_COOLDOWN = 60 # 30 minutes
 TEMP_THRESHOLD_HIGH = 28.0
 LIGHT_THRESHOLD_LOW = 10.0
 NOISE_THRESHOLD_HIGH = 50.0
@@ -143,14 +143,14 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Whisper modelini başlangıçta yükle
-log.info(f"Whisper modeli yükleniyor: {WHISPER_MODEL}")
+# Load Whisper model on startup
+log.info(f"Loading Whisper model: {WHISPER_MODEL}")
 whisper = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
-log.info("Whisper modeli yüklendi.")
+log.info("Whisper model loaded.")
 
 
 def pcm_to_wav(pcm: bytes) -> bytes:
-    """Ham PCM'i WAV container'ına sarar."""
+    """Wraps raw PCM in a WAV container."""
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(MIC_CHANNELS)
@@ -161,7 +161,7 @@ def pcm_to_wav(pcm: bytes) -> bytes:
 
 
 def stt(wav_bytes: bytes) -> str:
-    """Whisper ile WAV → metin."""
+    """WAV -> text via Whisper."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(wav_bytes)
         path = f.name
@@ -180,7 +180,7 @@ def stt(wav_bytes: bytes) -> str:
 
 
 def llm(prompt: str) -> str:
-    """Ollama'ya sorup yanıt al."""
+    """Ask Ollama and get response."""
     resp = requests.post(
         OLLAMA_URL,
         json={
@@ -198,13 +198,13 @@ def llm(prompt: str) -> str:
 
 
 def tts(text: str) -> bytes:
-    """Piper ile metin → WAV bytes."""
+    """text -> WAV bytes via Piper."""
     if not os.path.exists(PIPER_EXE):
-        raise FileNotFoundError(f"Piper bulunamadı: {PIPER_EXE}")
+        raise FileNotFoundError(f"Piper not found: {PIPER_EXE}")
     if not os.path.exists(PIPER_MODEL):
-        raise FileNotFoundError(f"Piper modeli bulunamadı: {PIPER_MODEL}")
+        raise FileNotFoundError(f"Piper model not found: {PIPER_MODEL}")
     if not os.path.exists(PIPER_MODEL + ".json"):
-        raise FileNotFoundError(f"Piper konfig bulunamadı: {PIPER_MODEL}.json")
+        raise FileNotFoundError(f"Piper config not found: {PIPER_MODEL}.json")
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         out_path = f.name
@@ -219,14 +219,14 @@ def tts(text: str) -> bytes:
         with open(out_path, "rb") as f:
             return f.read()
     except subprocess.CalledProcessError as e:
-        log.error(f"Piper hatası: {e.stderr.decode()}")
+        log.error(f"Piper error: {e.stderr.decode()}")
         raise
     finally:
         if os.path.exists(out_path):
             os.unlink(out_path)
 
 
-# ─── Endpoint'ler ─────────────────────────────────────────────────────────────
+# ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -236,32 +236,32 @@ def health():
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     """
-    ESP32'den ham PCM alır (16-bit, 16kHz, mono).
-    WAV ses yanıtı döner.
+    Receives raw PCM from ESP32 (16-bit, 16kHz, mono).
+    Returns WAV audio response.
     """
-    log.info(f"Yeni istek: {len(request.data)} bayt alındı.")
+    log.info(f"New request: {len(request.data)} bytes received.")
     try:
         event = request.headers.get("X-Event", "")
         
         if event == "POMO_WORK_DONE":
             text = PROMPT_WORK_DONE
-            log.info("Event geldi: POMO_WORK_DONE")
+            log.info("Event received: POMO_WORK_DONE")
             reply = llm(text)
         elif event == "POMO_WORK_DONE_FOR_LONG_BREAK":
             text = PROMPT_WORK_DONE_LONG
-            log.info("Event geldi: POMO_WORK_DONE_FOR_LONG_BREAK")
+            log.info("Event received: POMO_WORK_DONE_FOR_LONG_BREAK")
             reply = llm(text)
         elif event == "POMO_BREAK_DONE":
             text = PROMPT_BREAK_DONE
-            log.info("Event geldi: POMO_BREAK_DONE")
+            log.info("Event received: POMO_BREAK_DONE")
             reply = llm(text)
         elif event == "POMO_LONG_BREAK_DONE":
             text = PROMPT_LONG_BREAK_DONE
-            log.info("Event geldi: POMO_LONG_BREAK_DONE")
+            log.info("Event received: POMO_LONG_BREAK_DONE")
             reply = llm(text)
         else:
             if not request.data:
-                log.warning("İstek boş geldi.")
+                log.warning("Request is empty.")
                 return jsonify({"error": ERROR_NO_AUDIO}), 400
 
             wav  = pcm_to_wav(request.data)
@@ -270,7 +270,7 @@ def transcribe():
             if not text:
                 return jsonify({"error": ERROR_NO_SPEECH}), 422
 
-            # Sensör verisi güncelse bağlam ekle
+            # Add context if sensor data is recent
             context = ""
             if time.time() - sensor_state["last_update"] < 3600:
                 context = SENSOR_CONTEXT_TMPL.format(
@@ -279,7 +279,7 @@ def transcribe():
                     noise=sensor_state['noise']
                 )
 
-            # Prompt'a kullanıcının durumunu da ekleyebiliriz
+            # We can also add user state to the prompt
             state = request.headers.get("X-Pomo-State", "IDLE")
             prompt_context = ""
             if state == "WORK":
@@ -292,7 +292,7 @@ def transcribe():
             reply = llm(final_prompt)
             
         if not reply:
-            return jsonify({"error": "LLM yanıtı boş"}), 502
+            return jsonify({"error": "Empty LLM response"}), 502
 
         action = None
         if "[CMD:POMO_START]" in reply:
@@ -302,19 +302,19 @@ def transcribe():
             action = "POMO_STOP"
             reply = reply.replace("[CMD:POMO_STOP]", "").strip()
             
-        # Eğer sadece kod tag'ı geldiyse ve metin kalmadıysa varsayılan sesli yanıt oluştur
+        # If only the code tag came and no text is left, create default voice response
         if not reply:
             reply = FALLBACK_OK
 
-        # LLM'in uydurdugu TUM [CMD:...] etiketlerini TTS'e gitmeden temizle (regex)
+        # Clean ALL [CMD:...] tags fabricated by LLM before going to TTS (regex)
         reply = re.sub(r'\[CMD:[^\]]*\]', '', reply).strip()
         if not reply:
             reply = FALLBACK_RETRY
             
-        # tts WAV binary döndürür
+        # tts returns WAV binary
         wav_audio = tts(reply)
 
-        # WAV header'ını atlayıp sadece Data chunk'ını (Raw PCM) çıkartalım
+        # Skip the WAV header and extract only the Data chunk (Raw PCM)
         buf = io.BytesIO(wav_audio)
         with wave.open(buf, 'rb') as wf:
             raw_pcm = wf.readframes(wf.getnframes())
@@ -326,23 +326,23 @@ def transcribe():
             download_name="response.pcm"
         ))
         
-        # Eklemeler: Soru ve cevabı URL Encoded header üzerinden ESP32'ye gönder
+        # Additions: Send question and answer to ESP32 via URL Encoded header
         try:
             transcript_encoded = urllib.parse.quote(tr_to_ascii(text))
             reply_encoded = urllib.parse.quote(tr_to_ascii(reply))
             response.headers["X-Transcript-URL"] = transcript_encoded
             response.headers["X-Answer-URL"] = reply_encoded
         except Exception as e:
-            log.warning(f"Header encode hatasi: {e}")
+            log.warning(f"Header encode error: {e}")
 
         if action:
             response.headers["X-Action"] = action
-            log.info(f"X-Action başlığı eklendi: {action}")
+            log.info(f"X-Action header added: {action}")
             
         return response
 
     except Exception as e:
-        log.exception("Pipeline hatası")
+        log.exception("Pipeline error")
         return jsonify({"error": str(e)}), 500
 
 
@@ -363,9 +363,9 @@ def sensor_update():
         sensor_state["noise"] = noise
         sensor_state["last_update"] = time.time()
         
-        log.info(f"Sensör Güncellemesi: Sıcaklık={temp}C, Işık={light}%, Gürültü={noise:.1f}dB")
+        log.info(f"Sensor Update: Temp={temp}C, Light={light}%, Noise={noise:.1f}dB")
         
-        # Proaktif uyarı kontrolü
+        # Proactive warning check
         now = time.time()
         if now - sensor_state["last_warning_time"] > WARNING_COOLDOWN:
             warning_reason = None
@@ -378,9 +378,9 @@ def sensor_update():
                 
             if warning_reason:
                 sensor_state["last_warning_time"] = now
-                log.info(f"Proaktif uyarı tetiklendi: {warning_reason}")
+                log.info(f"Proactive warning triggered: {warning_reason}")
                 
-                # LLM'e uyarı metni hazırlat
+                # Let LLM prepare the warning text
                 prompt = SENSOR_WARN_TMPL.format(reason=warning_reason)
                 full_prompt = SENSOR_WARN_SYS + prompt
                 reply = llm(full_prompt)
@@ -388,7 +388,7 @@ def sensor_update():
                 # TTS
                 wav_audio = tts(reply)
                 
-                # PCM Çıkar
+                # Extract PCM
                 buf = io.BytesIO(wav_audio)
                 with wave.open(buf, 'rb') as wf:
                     raw_pcm = wf.readframes(wf.getnframes())
@@ -400,14 +400,14 @@ def sensor_update():
                     download_name="warning.pcm"
                 )
                 
-        # Uyarılık bir durum yoksa
+        # If there is no warning condition
         return "", 204
         
     except Exception as e:
-        log.exception("Sensor update hatası")
+        log.exception("Sensor update error")
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    log.info(f"Sunucu başlatılıyor: http://{SERVER_HOST}:{SERVER_PORT}")
+    log.info(f"Starting server: http://{SERVER_HOST}:{SERVER_PORT}")
     app.run(host=SERVER_HOST, port=SERVER_PORT, debug=False, threaded=True)
